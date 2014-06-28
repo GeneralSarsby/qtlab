@@ -204,7 +204,7 @@ class SR830(Instrument):
         Output:
             None
         '''
-        logging.info(__name__ + ' : reading all settings from instrument')
+        logging.debug(__name__ + ' : reading all settings from instrument')
         self.get_sensitivity()
         self.get_tau()
         self.get_frequency()
@@ -276,7 +276,7 @@ class SR830(Instrument):
         }
         self.direct_output()
         if parameters.__contains__(output):
-            logging.info(__name__ + ' : Reading parameter from instrument: %s ' %parameters.get(output))
+            logging.debug(__name__ + ' : Reading parameter from instrument: %s ' %parameters.get(output))
             if ovl:
                 self.get_input_overload()
                 self.get_time_constant_overload()
