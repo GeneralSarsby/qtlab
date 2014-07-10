@@ -20,8 +20,6 @@ from instrument import Instrument
 import visa
 import types
 import logging
-import numpy
-import string
 
 import qt
 

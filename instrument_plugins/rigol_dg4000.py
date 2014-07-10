@@ -23,8 +23,6 @@ from instrument import Instrument
 import visa
 import types
 import logging
-import numpy
-import string
 
 import qt
 
@@ -78,6 +76,10 @@ class rigol_dg4000(Instrument):
         self.add_parameter('screensaver', type=types.BooleanType,
                            flags=Instrument.FLAG_GETSET,
                            format_map={False:'disabled',True:'enabled'})
+        
+        self.add_parameter('interpolation', type=types.BooleanType,
+                           flags=Instrument.FLAG_GETSET,
+                           format_map={False:'off', True:'linear'})
         
         self.get_all()
     
@@ -198,7 +200,35 @@ class rigol_dg4000(Instrument):
     #puts the instrument into screensaver mode immediately
     def screensaver_on(self):
         self._visainstrument.write(":DISP:SAV:IMM\n")
-        
+    
+#Arbitrary waveform (:TRACE:DATA) instructions
+    
+    #:DATA:POIN:INT
+    #sets or queries linear interpolation of arbitrary waveforms
+    def do_get_interpolation(self):
+        return self._visainstrument.ask(":DATA:POIN:INT?\n").strip() == "LINEAR"
+
+    def do_set_interpolation(self, value):
+        if value:
+            self._visainstrument.write(":DATA:POIN:INT LIN\n")
+        else:
+            self._visainstrument.write(":DATA:POIN:INT OFF\n")
+            
+    #DATA VOLATILE
+    #uploads arb. waveform to the instrument
+    #input is a tuple of floats in the range of -1...1
+    #16k datapoints can be uploaded
+    def upload_float(self, payload):
+        if type(payload) != tuple:
+            return False
+        if len(payload) < 1 or len(payload) > 16384:
+            return False
+        for i in range(0,len(payload)):
+            if payload[i] < -1 or payload[i] > 1:
+                return False
+        self._visainstrument.write("DATA VOLATILE, " + str(payload)[1:-1]+"\n")
+        return True
+                  
 # Common SCPI instructions
 
     #*RST

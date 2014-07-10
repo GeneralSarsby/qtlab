@@ -22,7 +22,6 @@ from instrument import Instrument
 import visa
 import types
 import logging
-import numpy
 import string
 
 import qt
@@ -313,7 +312,7 @@ class rigol_dg_wavegen(Instrument):
     
     def do_set_load_impedance(self, value):
         if string.lower(value) == "highz":
-             self._phy.write(":OUTP"+self._ch+":LOAD INF\n")
+            self._phy.write(":OUTP"+self._ch+":LOAD INF\n")
         else:
             res=float(value)
             if res >= 1.0 and res <=10000.0:
@@ -669,11 +668,11 @@ class rigol_dg_wavegen(Instrument):
         
     def do_set_burst_mode(self,value):
         if value == 0:
-           self._phy.write(":SOUR"+self._ch+":BURS:MODE TRIG\n")
+            self._phy.write(":SOUR"+self._ch+":BURS:MODE TRIG\n")
         elif value == 1:
-           self._phy.write(":SOUR"+self._ch+":BURS:MODE GAT\n")
+            self._phy.write(":SOUR"+self._ch+":BURS:MODE GAT\n")
         elif value == 2:
-           self._phy.write(":SOUR"+self._ch+":BURS:MODE INF\n")
+            self._phy.write(":SOUR"+self._ch+":BURS:MODE INF\n")
    
     #SOUR:BURS:NCYC
     #queries or sets the number of output cycles after each trigger
@@ -827,5 +826,9 @@ class rigol_dg_wavegen(Instrument):
     def do_set_sweep_steps(self,value):
         self._phy.write(":SOUR"+self._ch+":SWE:STEP " + str(value) + "\n")
     
-       
+    #SOUR:BURS:TRIG
+    #triggers a single channel of the instrument
+    def trigger(self):
+        self._phy.write(":SOUR"+self._ch+":BURS:TRIG\n")
+
     
