@@ -71,7 +71,7 @@ class avs47_logreader(Instrument):
     
     def do_get_resistance_CH(self, channel):
         try:
-            res=np.loadtxt(self.get_filename(),comments='#',delimiter='\t',usecols=[1+channel,])
+            res=np.loadtxt(self.get_filename(),comments='#',delimiter='\t',usecols=[2+channel,])
         except Exception:
             return np.nan
         if np.size(res) == 0:
