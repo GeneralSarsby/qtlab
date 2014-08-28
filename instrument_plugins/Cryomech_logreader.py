@@ -25,7 +25,7 @@ import logging
 import numpy as np
 import os
 
-class Cryomech_logeader(Instrument):
+class Cryomech_logreader(Instrument):
 
     #Units can be set to either "Metric" (True) or "Imperial" (False) when loading the driver
     #Default is metric.
