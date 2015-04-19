@@ -6,6 +6,9 @@
 # Update december 2009:
 # Michiel Jol <jelle@michieljol.nl>
 #
+# Update and cleanup 2015: 
+# Attila Geresdi
+#
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation; either version 2 of the License, or
@@ -51,7 +54,7 @@ class Keithley_2000(Instrument):
     '''
 
     def __init__(self, name, address, reset=False,
-            change_display=True, change_autozero=True):
+            change_display=True, change_autozero=True, set_defaults=False):
         '''
         Initializes the Keithley_2000, and communicates with the wrapper.
 
@@ -63,6 +66,7 @@ class Keithley_2000(Instrument):
                                         display during measurements.
             change_autozero (bool)  : If True (default), automatically turn off
                                         autozero during measurements.
+            set_defaults (bool)     : If True, sets the default settings defined in the driver
         Output:
             None
         '''
@@ -73,42 +77,50 @@ class Keithley_2000(Instrument):
         # Add some global constants
         self._address = address
         self._visainstrument = visa.instrument(self._address)
-        self._modes = ['VOLT:AC', 'VOLT:DC', 'CURR:AC', 'CURR:DC', 'RES',
-            'FRES', 'TEMP', 'FREQ']
         self._change_display = change_display
         self._change_autozero = change_autozero
-        self._averaging_types = ['MOV','REP']
-        self._trigger_sent = False
 
         # Add parameters to wrapper
         self.add_parameter('range',
-            flags=Instrument.FLAG_GETSET,
-            units='', minval=0.1, maxval=1000, type=types.FloatType)
+            flags=Instrument.FLAG_GETSET | Instrument.FLAG_GET_AFTER_SET,
+            minval=0.0, maxval=1000, type=types.FloatType)
         self.add_parameter('trigger_continuous',
             flags=Instrument.FLAG_GETSET,
             type=types.BooleanType)
         self.add_parameter('trigger_count',
             flags=Instrument.FLAG_GETSET,
-            units='#', type=types.IntType)
+            type=types.IntType)
         self.add_parameter('trigger_delay',
             flags=Instrument.FLAG_GETSET,
             units='s', minval=0, maxval=999999.999, type=types.FloatType)
         self.add_parameter('trigger_source',
             flags=Instrument.FLAG_GETSET,
-            units='')
+            type=types.IntType, format_map={
+                            0: "Immediate",
+                            1: "External",
+                            2: "Timer",
+                            3: "Manual",
+                            4: "Bus"})
         self.add_parameter('trigger_timer',
             flags=Instrument.FLAG_GETSET,
-            units='s', minval=0.001, maxval=99999.999, type=types.FloatType)
+            units='s', minval=0.001, maxval=999999.999, type=types.FloatType)
         self.add_parameter('mode',
             flags=Instrument.FLAG_GETSET,
-            type=types.StringType, units='')
+            type=types.IntType, format_map={
+                            0: 'AC Current',
+                            1: 'DC Current',
+                            2: 'AC Voltage',
+                            3: 'DC Voltage',
+                            4: '2W Resistance',
+                            5: '4W Resistance',
+                            6: 'Period',
+                            7: 'Frequency',
+                            8: 'Temperature',
+                            9: 'Diode',
+                            10: 'Continuity'})
         self.add_parameter('digits',
-            flags=Instrument.FLAG_GETSET,
-            units='#', minval=4, maxval=7, type=types.IntType)
-        self.add_parameter('readval', flags=Instrument.FLAG_GET,
-            units='AU',
-            type=types.FloatType,
-            tags=['measure'])
+            flags=Instrument.FLAG_GETSET | Instrument.FLAG_GET_AFTER_SET,
+            minval=4, maxval=7, type=types.IntType)
         self.add_parameter('readlastval', flags=Instrument.FLAG_GET,
             units='AU',
             type=types.FloatType,
@@ -117,9 +129,9 @@ class Keithley_2000(Instrument):
             units='AU',
             type=types.FloatType,
             tags=['measure'])
-        self.add_parameter('nplc',
+        self.add_parameter('integration_time',
             flags=Instrument.FLAG_GETSET,
-            units='#', type=types.FloatType, minval=0.01, maxval=50)
+            type=types.FloatType, minval=0.01, maxval=10, units='PLC')
         self.add_parameter('display', flags=Instrument.FLAG_GETSET,
             type=types.BooleanType)
         self.add_parameter('autozero', flags=Instrument.FLAG_GETSET,
@@ -128,36 +140,19 @@ class Keithley_2000(Instrument):
             type=types.BooleanType)
         self.add_parameter('averaging_count',
             flags=Instrument.FLAG_GETSET,
-            units='#', type=types.IntType, minval=1, maxval=100)
+            type=types.IntType, minval=1, maxval=100)
         self.add_parameter('averaging_type',
             flags=Instrument.FLAG_GETSET,
-            type=types.StringType, units='')
+            type=types.BooleanType, format_map={False:'Repeating', True:'Moving'})
         self.add_parameter('autorange',
             flags=Instrument.FLAG_GETSET,
-            units='',
             type=types.BooleanType)
-
-        # Add functions to wrapper
-        self.add_function('set_mode_volt_ac')
-        self.add_function('set_mode_volt_dc')
-        self.add_function('set_mode_curr_ac')
-        self.add_function('set_mode_curr_dc')
-        self.add_function('set_mode_res')
-        self.add_function('set_mode_fres')
-        self.add_function('set_mode_temp')
-        self.add_function('set_mode_freq')
-        self.add_function('set_range_auto')
-        self.add_function('set_trigger_cont')
-        self.add_function('set_trigger_disc')
-        self.add_function('reset_trigger')
-        self.add_function('reset')
-        self.add_function('get_all')
-
-        self.add_function('read')
-        self.add_function('readlast')
-
-        self.add_function('send_trigger')
-        self.add_function('fetch')
+        self.add_parameter('status_measurement',
+            flags=Instrument.FLAG_GET,
+            type=types.IntType)
+        self.add_parameter('status_operation',
+            flags=Instrument.FLAG_GET,
+            type=types.IntType)        
 
         # Connect to measurement flow to detect start and stop of measurement
         qt.flow.connect('measurement-start', self._measurement_start_cb)
@@ -167,51 +162,12 @@ class Keithley_2000(Instrument):
             self.reset()
         else:
             self.get_all()
-            self.set_defaults()
+            if set_defaults:
+                self.set_defaults()
 
 # --------------------------------------
 #           functions
 # --------------------------------------
-
-    def reset(self):
-        '''
-        Resets instrument to default values
-
-        Input:
-            None
-
-        Output:
-            None
-        '''
-        logging.debug('Resetting instrument')
-        self._visainstrument.write('*RST')
-        self.get_all()
-
-    def set_defaults(self):
-        '''
-        Set to driver defaults:
-        Output=data only
-        Mode=Volt:DC
-        Digits=7
-        Trigger=Continous
-        Range=10 V
-        NPLC=1
-        Averaging=off
-        '''
-
-#        self._visainstrument.write('SYST:PRES')
-#        self._visainstrument.write(':FORM:ELEM READ')
-            # Sets the format to only the read out, all options are:
-            # READing = DMM reading, UNITs = Units,
-            # TSTamp = Timestamp, RNUMber = Reading number,
-            # CHANnel = Channel number, LIMits = Limits reading
-
-        self.set_mode_volt_dc()
-        self.set_digits(7)
-        self.set_trigger_continuous(True)
-        self.set_range(10)
-        self.set_nplc(1)
-        self.set_averaging(False)
 
     def get_all(self):
         '''
@@ -233,78 +189,18 @@ class Keithley_2000(Instrument):
         self.get_trigger_timer()
         self.get_mode()
         self.get_digits()
-        self.get_nplc()
+        self.get_integration_time()
         self.get_display()
         self.get_autozero()
         self.get_averaging()
         self.get_averaging_count()
         self.get_averaging_type()
         self.get_autorange()
+        self.get_readlastval()
 
-# Link old read and readlast to new routines:
-    # Parameters are for states of the machnine and functions
-    # for non-states. In principle the reading of the Keithley is not
-    # a state (it's just a value at a point in time) so it should be a
-    # function, technically. The GUI, however, requires an parameter to
-    # read it out properly, so the reading is now done as if it is a
-    # parameter, and the old functions are redirected.
-
-    def read(self):
+    def reset(self):
         '''
-        Old function for read-out, links to get_readval()
-        '''
-        logging.debug('Link to get_readval()')
-        return self.get_readval()
-
-    def readlast(self):
-        '''
-        Old function for read-out, links to get_readlastval()
-        '''
-        logging.debug('Link to get_readlastval()')
-        return self.get_readlastval()
-
-    def readnext(self):
-        '''
-        Links to get_readnextval
-        '''
-        logging.debug('Link to get_readnextval()')
-        return self.get_readnextval()
-
-    def send_trigger(self):
-        '''
-        Send trigger to Keithley, use when triggering is not continous.
-        '''
-        trigger_status = self.get_trigger_continuous(query=False)
-        if (trigger_status):
-            logging.warning('Trigger is set to continous, sending trigger impossible')
-        elif (not trigger_status):
-            logging.debug('Sending trigger')
-            self._visainstrument.write('INIT')
-            self._trigger_sent = True
-        else:
-            logging.error('Error in retrieving triggering status, no trigger sent.')
-
-    def fetch(self):
-        '''
-        Get data at this instance, not recommended, use get_readlastval.
-        Use send_trigger() to trigger the device.
-        Note that Readval is not updated since this triggers itself.
-        '''
-
-        trigger_status = self.get_trigger_continuous(query=False)
-        if self._trigger_sent and (not trigger_status):
-            logging.debug('Fetching data')
-            reply = self._visainstrument.ask('FETCH?')
-            self._trigger_sent = False
-            return float(reply[0:15])
-        elif (not self._trigger_sent) and (not trigger_status):
-            logging.warning('No trigger sent, use send_trigger')
-        else:
-            logging.error('Triggering is on continous!')
-
-    def set_mode_volt_ac(self):
-        '''
-        Set mode to AC Voltage
+        Resets instrument to default values
 
         Input:
             None
@@ -312,146 +208,35 @@ class Keithley_2000(Instrument):
         Output:
             None
         '''
-        logging.debug('Set mode to AC Voltage')
-        self.set_mode('VOLT:AC')
+        logging.debug('Resetting instrument')
+        self._visainstrument.write('*RST')
+        self.get_all()
 
-    def set_mode_volt_dc(self):
+    def set_defaults(self):
         '''
-        Set mode to DC Voltage
-
-        Input:
-            None
-
-        Output:
-            None
+        Set to driver defaults:
+        Output=data only
+        Mode=Volt:DC
+        Digits=7
+        Trigger=Continuous
+        Range=10 V
+        NPLC=1
+        Averaging=off
         '''
-        logging.debug('Set mode to DC Voltage')
-        self.set_mode('VOLT:DC')
 
-    def set_mode_curr_ac(self):
-        '''
-        Set mode to AC Current
+#        self._visainstrument.write('SYST:PRES')
+#        self._visainstrument.write(':FORM:ELEM READ')
+            # Sets the format to only the read out, all options are:
+            # READing = DMM reading, UNITs = Units,
+            # TSTamp = Timestamp, RNUMber = Reading number,
+            # CHANnel = Channel number, LIMits = Limits reading
 
-        Input:
-            None
-
-        Output:
-            None
-        '''
-        logging.debug('Set mode to AC Current')
-        self.set_mode('CURR:AC')
-
-    def set_mode_curr_dc(self):
-        '''
-        Set mode to DC Current
-
-        Input:
-            None
-
-        Output:
-            None
-        '''
-        logging.debug('Set mode to DC Current')
-        self.set_mode('CURR:DC')
-
-    def set_mode_res(self):
-        '''
-        Set mode to Resistance
-
-        Input:
-            None
-
-        Output:
-            None
-        '''
-        logging.debug('Set mode to Resistance')
-        self.set_mode('RES')
-
-    def set_mode_fres(self):
-        '''
-        Set mode to 'four wire Resistance'
-
-        Input:
-            None
-
-        Output:
-            None
-        '''
-        logging.debug('Set mode to "four wire resistance"')
-        self.set_mode('FRES')
-
-    def set_mode_temp(self):
-        '''
-        Set mode to Temperature
-
-        Input:
-            None
-
-        Output:
-            None
-        '''
-        logging.debug('Set mode to Temperature')
-        self.set_mode('TEMP')
-
-    def set_mode_freq(self):
-        '''
-        Set mode to Frequency
-
-        Input:
-            None
-
-        Output:
-            None
-        '''
-        logging.debug('Set mode to Frequency')
-        self.set_mode('FREQ')
-
-    def set_range_auto(self, mode=None):
-        '''
-        Old function to set autorange, links to set_autorange()
-        '''
-        logging.debug('Redirect to set_autorange')
-        self.set_autorange(True)
-
-    def set_trigger_cont(self):
-        '''
-        Set trigger mode to continuous, old function, uses set_Trigger_continuous(True).
-
-        Input:
-            None
-
-        Output:
-            None
-        '''
-        logging.debug('Set Trigger to continuous mode')
+        self.set_mode(4)
+        self.set_digits(7)
         self.set_trigger_continuous(True)
-
-    def set_trigger_disc(self):
-        '''
-        Set trigger mode to Discrete
-
-        Input:
-            None
-
-        Output:
-            None
-        '''
-        logging.debug('Set Trigger to discrete mode')
-        self.set_trigger_continuous(False)
-
-    def reset_trigger(self):
-        '''
-        Reset trigger status
-
-        Input:
-            None
-
-        Output:
-            None
-        '''
-        logging.debug('Resetting trigger')
-        self._visainstrument.write(':ABOR')
-
+        self.set_range(10)
+        self.set_nplc(1)
+        self.set_averaging(False)
 
 # --------------------------------------
 #           parameters
@@ -460,33 +245,28 @@ class Keithley_2000(Instrument):
     def do_get_readnextval(self):
         '''
         Waits for the next value available and returns it as a float.
-        Note that if the reading is triggered manually, a trigger must
-        be send first to avoid a time-out.
+.
+        Note: if triggering was continuous before calling the function
+        it has to be disabled to ensure that we get reading only upon the next trigger. 
 
         Input:
             None
 
         Output:
-            value(float) : last triggerd value on input
+            value(float) : last triggered value on input
         '''
-        logging.debug('Read next value')
-
-        trigger_status = self.get_trigger_continuous(query=False)
-        if (not trigger_status) and (not self._trigger_sent):
-            logging.error('No trigger has been send, return 0')
-            return float(0)
-        self._trigger_sent = False
-
-        text = self._visainstrument.ask('DATA:FRESH?')
-            # Changed the query to from Data?
-            # to Data:FRESH? so it will actually wait for the
-            # measurement to finish.
-        return float(text[0:15])
-
+        if self.get_trigger_continuous():
+            self.set_trigger_continuous(False)
+            value=float(self._visainstrument.ask(':READ?'))
+            self.set_trigger_continuous(True)
+        else:
+            value=float(self._visainstrument.ask(':READ?'))
+        return value
+        
     def do_get_readlastval(self):
         '''
         Returns the last measured value available and returns it as a float.
-        Note that if this command is send twice in one integration time it will
+        Note that if this command is sent twice in one integration time it will
         return the same value.
 
         Example:
@@ -498,571 +278,422 @@ class Keithley_2000(Instrument):
             None
 
         Output:
-            value(float) : last triggerd value on input
+            value(float) : last triggered value on input
         '''
         logging.debug('Read last value')
-
-        text = self._visainstrument.ask('DATA?')
-        return float(text[0:15])
-
-    def do_get_readval(self, ignore_error=False):
-        '''
-        Aborts current trigger and sends a new trigger
-        to the device and reads float value.
-        Do not use when trigger mode is 'CONT'
-        Instead use readlastval
-
-        Input:
-            ignore_error (boolean): Ignore trigger errors, default is 'False'
-
-        Output:
-            value(float) : currrent value on input
-        '''
-        trigger_status = self.get_trigger_continuous(query=False)
-        if trigger_status:
-            if ignore_error:
-                logging.debug('Trigger=continuous, can\'t trigger, return 0')
-            else:
-                logging.error('Trigger=continuous, can\'t trigger, return 0')
-            text = '0'
-            return float(text[0:15])
-        elif not trigger_status:
-            logging.debug('Read current value')
-            text = self._visainstrument.ask('READ?')
-            self._trigger_sent = False
-            return float(text[0:15])
-        else:
-            logging.error('Error in retrieving triggering status, no trigger sent.')
-
-
-
-    def do_set_range(self, val, mode=None):
-        '''
-        Set range to the specified value for the
-        designated mode. If mode=None, the current mode is assumed
-
-        Input:
-            val (float)   : Range in specified units
-            mode (string) : mode to set property for. Choose from self._modes
-
-        Output:
-            None
-        '''
-        logging.debug('Set range to %s' % val)
-        self._set_func_par_value(mode, 'RANG', val)
-
-    def do_get_range(self, mode=None):
-        '''
-        Get range for the specified mode.
-        If mode=None, the current mode is assumed.
-
-        Input:
-            mode (string) : mode to set property for. Choose from self._modes
-
-        Output:
-            range (float) : Range in the specified units
-        '''
-        logging.debug('Get range')
-        return float(self._get_func_par(mode, 'RANG'))
-
-    def do_set_digits(self, val, mode=None):
-        '''
-        Set digits to the specified value ?? Which values are alowed?
-        If mode=None the current mode is assumed
-
-        Input:
-            val (int)     : Number of digits
-            mode (string) : mode to set property for. Choose from self._modes
-
-        Output:
-            None
-        '''
-        logging.debug('Set digits to %s' % val)
-        self._set_func_par_value(mode, 'DIG', val)
-
-    def do_get_digits(self, mode=None):
-        '''
-        Get digits
-        If mode=None the current mode is assumed
-
-        Input:
-            mode (string) : mode to set property for. Choose from self._modes
-
-        Output:
-            digits (int) : Number of digits
-        '''
-        logging.debug('Getting digits')
-        return int(self._get_func_par(mode, 'DIG'))
-
-    def do_set_nplc(self, val, mode=None, unit='APER'):
-        '''
-        Set integration time to the specified value in Number of Powerline Cycles.
-        To set the integrationtime in seconds, use set_integrationtime().
-        Note that this will automatically update integrationtime as well.
-        If mode=None the current mode is assumed
-
-        Input:
-            val (float)   : Integration time in nplc.
-            mode (string) : mode to set property for. Choose from self._modes.
-
-        Output:
-            None
-        '''
-        logging.debug('Set integration time to %s PLC' % val)
-        self._set_func_par_value(mode, 'NPLC', val)
         
-    def do_get_nplc(self, mode=None, unit='APER'):
-        '''
-        Get integration time in Number of PowerLine Cycles.
-        To get the integrationtime in seconds, use get_integrationtime().
-        If mode=None the current mode is assumed
+        return float(self._visainstrument.ask('DATA?'))
 
-        Input:
-            mode (string) : mode to get property of. Choose from self._modes.
+#:<function>:RANG
+#sets or queries the range of measurements
+#this is only available for current, voltage and resistance measurements
+#limits are changed according to function (see do_set_mode())
+#GET_AFTER_SET ensures that the actual range is displayed
 
-        Output:
-            time (float) : Integration time in PLCs
-        '''
-        logging.debug('Read integration time in PLCs')
-        return float(self._get_func_par(mode, 'NPLC'))
+    def do_set_range(self, val):
+        if self.get_mode() > 5:
+            logging.error('Range cannot be specified for the current function')
+            return False
+        else:
+            self._visainstrument.write(':'+self._int_to_function(self.get_mode())+':RANG '+str(val))
+
+    def do_get_range(self):
+        if self.get_mode() > 5:
+            logging.error('Range cannot be read for the current function')
+            return False
+        else:
+            return float(self._visainstrument.ask(':'+self._int_to_function(self.get_mode())+':RANG?'))
+
+#:<function>:DIG
+#sets or queries the number of digits to display
+#this is not available for diode or continuity measurements
+    def do_set_digits(self, val):
+        if self.get_mode() > 8:
+            logging.error('Cannot set the number of digits for the current function')
+            return False
+        else:
+            self._visainstrument.write(':'+self._int_to_function(self.get_mode())+':DIG '+str(val))
+
+    def do_get_digits(self):
+        if self.get_mode() > 8:
+            logging.error('Cannot get the number of digits for the current function')
+            return False
+        else:        
+            return int(self._visainstrument.ask(':'+self._int_to_function(self.get_mode())+':DIG?'))
+
+#:<function>:NPLC
+#sets or queries integration time in number of power line cycles (NPLC)
+#for everything except for period and frequency measurements
+#:<function>:APER
+#sets or queries the integration time in seconds for period or frequency measurements
+    def do_set_integration_time(self, val):
+        if self.get_mode() == 7 or self.get_mode() == 6:
+            self._visainstrument.write(':'+self._int_to_function(self.get_mode())+':APER '+str(val))
+        else:
+            self._visainstrument.write(':'+self._int_to_function(self.get_mode())+':NPLC '+str(val))
+    
+    def do_get_integration_time(self):
+        if self.get_mode() == 7 or self.get_mode() == 6:
+            return float(self._visainstrument.ask(':'+self._int_to_function(self.get_mode())+':APER?'))
+        else:
+            return float(self._visainstrument.ask(':'+self._int_to_function(self.get_mode())+':NPLC?'))
+
+#:TRIG:CONT
+#sets or queries continuous triggering
 
     def do_set_trigger_continuous(self, val):
-        '''
-        Set trigger mode to continuous.
-
-        Input:
-            val (boolean) : Trigger on or off
-
-        Output:
-            None
-        '''
-        val = bool_to_str(val)
-        logging.debug('Set trigger mode to %s' % val)
-        self._set_func_par_value('INIT', 'CONT', val)
-
+        if val:
+            self._visainstrument.write(':INIT:CONT 1')
+        else:
+            self._visainstrument.write(':INIT:CONT 0')
+            
     def do_get_trigger_continuous(self):
-        '''
-        Get trigger mode from instrument
+        return int(self._visainstrument.ask(':INIT:CONT?')) == 1
 
-        Input:
-            None
-
-        Output:
-            val (bool) : returns if triggering is continuous.
-        '''
-        logging.debug('Read trigger mode from instrument')
-        return bool(int(self._get_func_par('INIT', 'CONT')))
-
+#:TRIG:COUN
+#sets or queries the number of trigger events processed
+#For infinite (INF), set zero
     def do_set_trigger_count(self, val):
-        '''
-        Set trigger count
-        if val>9999 count is set to INF
-
-        Input:
-            val (int) : trigger count
-
-        Output:
-            None
-        '''
-        logging.debug('Set trigger count to %s' % val)
-        if val > 9999:
-            val = 'INF'
-        self._set_func_par_value('TRIG', 'COUN', val)
+        if val == 0:
+            self._visainstrument.write(':TRIG:COUN INF')
+        else:
+            self._visainstrument.write(':TRIG:COUN '+str(val))
 
     def do_get_trigger_count(self):
-        '''
-        Get trigger count
-
-        Input:
-            None
-
-        Output:
-            count (int) : Trigger count
-        '''
-        logging.debug('Read trigger count from instrument')
-        ans = self._get_func_par('TRIG', 'COUN')
-        try:
-            ret = int(ans)
-        except:
-            ret = 0
-
-        return ret
+        temp=self._visainstrument.ask(':TRIG:COUN?').strip()
+        if temp == '+9.9e37':
+            return 0
+        else:
+            return int(temp)
+        
+#:TRIG:DEL
+#sets or queries trigger delay
 
     def do_set_trigger_delay(self, val):
-        '''
-        Set trigger delay to the specified value
-
-        Input:
-            val (float) : Trigger delay in seconds
-
-        Output:
-            None
-        '''
-        logging.debug('Set trigger delay to %s' % val)
-        self._set_func_par_value('TRIG', 'DEL', val)
+        self._visainstrument.write(':TRIG:DEL '+ str(val))
 
     def do_get_trigger_delay(self):
-        '''
-        Read trigger delay from instrument
+        return float(self._visainstrument.ask(':TRIG:DEL?'))
 
-        Input:
-            None
-
-        Output:
-            delay (float) : Delay in seconds
-        '''
-        logging.debug('Get trigger delay')
-        return float(self._get_func_par('TRIG', 'DEL'))
-
+#:TRIG:SOUR
+#queries or sets the trigger source
     def do_set_trigger_source(self, val):
-        '''
-        Set trigger source
-
-        Input:
-            val (string) : Trigger source
-
-        Output:
-            None
-        '''
-        logging.debug('Set Trigger source to %s' % val)
-        self._set_func_par_value('TRIG', 'SOUR', val)
-
+        if val == 0:
+            self._visainstrument.write(':TRIG:SOUR IMM')
+        elif val == 1:
+            self._visainstrument.write(':TRIG:SOUR EXT')
+        elif val == 2:
+            self._visainstrument.write(':TRIG:SOUR TIM')
+        elif val == 3:
+            self._visainstrument.write(':TRIG:SOUR MAN')
+        elif val == 4:
+            self._visainstrument.write(':TRIG:SOUR BUS')
+        else:
+            logging.error('Invalid trigger source')
+        
     def do_get_trigger_source(self):
-        '''
-        Read trigger source from instrument
+        temp = self._visainstrument.ask(':TRIG:SOUR?').strip()
+        if temp == 'IMM':
+            return 0
+        elif temp == 'EXT':
+            return 1
+        elif temp == 'TIM':
+            return 2
+        elif temp == 'MAN':
+            return 3
+        elif temp == 'BUS':
+            return 4
+        else:
+            return None
 
-        Input:
-            None
-
-        Output:
-            source (string) : The trigger source
-        '''
-        logging.debug('Getting trigger source')
-        return self._get_func_par('TRIG', 'SOUR')
-
+#:TRIG:TIM
+#sets or queries trigger timer effective for TIM trigger source
     def do_set_trigger_timer(self, val):
-        '''
-        Set the trigger timer
-
-        Input:
-            val (float) : the value to be set
-
-        Output:
-            None
-        '''
-        logging.debug('Set trigger timer to %s' % val)
-        self._set_func_par_value('TRIG', 'TIM', val)
+        self._visainstrument.write(':TRIG:TIM '+str(val))
 
     def do_get_trigger_timer(self):
-        '''
-        Read the value for the trigger timer from the instrument
+        return float(self._visainstrument.ask(':TRIG:TIM?'))
 
-        Input:
-            None
+#:TRIG:INIT
+#initiate triggering
+    def trigger_init(self):
+        self._visainstrument.write(':INIT')
 
-        Output:
-            timer (float) : Value of timer
-        '''
-        logging.debug('Get trigger timer')
-        return float(self._get_func_par('TRIG', 'TIM'))
+#:TRIG:ABOR
+#abort triggering, puts the instrument into the idle state
+    def trigger_abort(self):
+        self._visainstrument.write(':ABOR')
 
-    def do_set_mode(self, mode):
-        '''
-        Set the mode to the specified value
-
-        Input:
-            mode (string) : mode to be set. Choose from self._modes
-
-        Output:
-            None
-        '''
-
-        logging.debug('Set mode to %s', mode)
-        if mode in self._modes:
-            string = 'SENS:FUNC "%s"' % mode
-            self._visainstrument.write(string)
-
-            if mode.startswith('VOLT'):
-                self._change_units('V')
-            elif mode.startswith('CURR'):
-                self._change_units('A')
-            elif mode.startswith('RES'):
-                self._change_units('Ohm')
-            elif mode.startswith('FREQ'):
-                self._change_units('Hz')
-
+#:FUNC
+#Sets or queries the measured function
+#GET_AFTER_SET ensures that related parameters e.g. range are read
+#upon changing it
+    def do_set_mode(self, val):
+        if val == 0:
+            self._visainstrument.write(':FUNC "CURR:AC"')
+            self.set_parameter_options('readlastval', units='A')
+            self.set_parameter_options('readnextval', units='A')
+            self.set_parameter_options('range', maxval=3.1)
+            self.set_parameter_options('integration_time', units='PLC')
+            self.set_parameter_options('integration_time', minval=0.01)
+            self.set_parameter_options('integration_time', maxval=10.0)
+            self.set_parameter_options('integration_time', flags=Instrument.FLAG_GETSET)
+        elif val == 1:
+            self._visainstrument.write(':FUNC "CURR:DC"')
+            self.set_parameter_options('readlastval', units='A')
+            self.set_parameter_options('readnextval', units='A')
+            self.set_parameter_options('range', maxval=3.1)
+            self.set_parameter_options('integration_time', units='PLC')
+            self.set_parameter_options('integration_time', minval=0.01)
+            self.set_parameter_options('integration_time', maxval=10.0)
+            self.set_parameter_options('integration_time', flags=Instrument.FLAG_GETSET)
+        elif val == 2:
+            self._visainstrument.write(':FUNC "VOLT:AC"')     
+            self.set_parameter_options('readlastval', units='V')
+            self.set_parameter_options('readnextval', units='V')
+            self.set_parameter_options('range', maxval=1010)
+            self.set_parameter_options('integration_time', units='PLC')
+            self.set_parameter_options('integration_time', minval=0.01)
+            self.set_parameter_options('integration_time', maxval=10.0)
+            self.set_parameter_options('integration_time', flags=Instrument.FLAG_GETSET)
+        elif val == 3:
+            self._visainstrument.write(':FUNC "VOLT:DC"')
+            self.set_parameter_options('readlastval', units='V')
+            self.set_parameter_options('readnextval', units='V')
+            self.set_parameter_options('range', maxval=1010)
+            self.set_parameter_options('integration_time', units='PLC')
+            self.set_parameter_options('integration_time', minval=0.01)
+            self.set_parameter_options('integration_time', maxval=10.0)
+            self.set_parameter_options('integration_time', flags=Instrument.FLAG_GETSET)
+        elif val == 4:
+            self._visainstrument.write(':FUNC "RES"')
+            self.set_parameter_options('readlastval', units='Ohm')
+            self.set_parameter_options('readnextval', units='Ohm')
+            self.set_parameter_options('range', maxval=120e6)
+            self.set_parameter_options('integration_time', units='PLC')
+            self.set_parameter_options('integration_time', minval=0.01)
+            self.set_parameter_options('integration_time', maxval=10.0)
+            self.set_parameter_options('integration_time', flags=Instrument.FLAG_GETSET)
+        elif val == 5:
+            self._visainstrument.write(':FUNC "FRES"')
+            self.set_parameter_options('readlastval', units='Ohm')
+            self.set_parameter_options('readnextval', units='Ohm')
+            self.set_parameter_options('range', maxval=120e6)
+            self.set_parameter_options('integration_time', units='PLC')
+            self.set_parameter_options('integration_time', minval=0.01)
+            self.set_parameter_options('integration_time', maxval=10.0)
+            self.set_parameter_options('integration_time', flags=Instrument.FLAG_GETSET)
+        elif val == 6:
+            self._visainstrument.write(':FUNC "PER"')
+            self.set_parameter_options('readlastval', units='s')
+            self.set_parameter_options('readnextval', units='s')
+            self.set_parameter_options('integration_time', units='s')
+            self.set_parameter_options('integration_time', minval=0.01)
+            self.set_parameter_options('integration_time', maxval=10.0)
+            self.set_parameter_options('integration_time', flags=Instrument.FLAG_GETSET)
+        elif val == 7:
+            self._visainstrument.write(':FUNC "FREQ"')
+            self.set_parameter_options('readlastval', units='Hz')
+            self.set_parameter_options('readnextval', units='Hz')
+            self.set_parameter_options('integration_time', units='s')
+            self.set_parameter_options('integration_time', minval=0.01)
+            self.set_parameter_options('integration_time', maxval=10.0)
+            self.set_parameter_options('integration_time', flags=Instrument.FLAG_GETSET)
+        elif val == 8:
+            self._visainstrument.write(':FUNC "TEMP"')
+            self.set_parameter_options('readlastval', units='K')
+            self.set_parameter_options('readnextval', units='K')
+            self.set_parameter_options('integration_time', units='PLC')
+            self.set_parameter_options('integration_time', minval=0.01)
+            self.set_parameter_options('integration_time', maxval=10.0)
+            self.set_parameter_options('integration_time', flags=Instrument.FLAG_GETSET)
+        elif val == 9:
+            self._visainstrument.write(':FUNC "DIOD"')
+            self.set_parameter_options('readlastval', units='V')
+            self.set_parameter_options('readnextval', units='V')
+            self.set_parameter_options('integration_time', units='PLC')
+            self.set_parameter_options('integration_time', minval=0.01)
+            self.set_parameter_options('integration_time', maxval=10.0)
+            self.set_parameter_options('integration_time', flags=Instrument.FLAG_GET)
+        elif val == 10:
+            self._visainstrument.write(':FUNC "CONT"')
+            self.set_parameter_options('readlastval', units='')
+            self.set_parameter_options('readnextval', units='')
+            self.set_parameter_options('integration_time', units='PLC')
+            self.set_parameter_options('integration_time', minval=0.01)
+            self.set_parameter_options('integration_time', maxval=10.0)
+            self.set_parameter_options('integration_time', flags=Instrument.FLAG_GET)           
         else:
-            logging.error('invalid mode %s' % mode)
-
+            logging.error('Tried to set invalid mode')
         self.get_all()
-            # Get all values again because some paramaters depend on mode
-
+                
     def do_get_mode(self):
-        '''
-        Read the mode from the device
+        temp = self._visainstrument.ask(':FUNC?').strip().strip('"')
+        if temp == 'CURR:AC':
+            return 0
+        elif temp == 'CURR:DC':
+            return 1
+        elif temp == 'VOLT:AC':
+            return 2
+        elif temp == 'VOLT:DC':
+            return 3
+        elif temp == 'RES':
+            return 4
+        elif temp == 'FRES':
+            return 5
+        elif temp == 'PER':
+            return 6
+        elif temp == 'FREQ':
+            return 7
+        elif temp == 'TEMP':
+            return 8
+        elif temp == 'DIOD':
+            return 9
+        elif temp == 'CONT':
+            return 10
 
-        Input:
-            None
-
-        Output:
-            mode (string) : Current mode
-        '''
-        string = 'SENS:FUNC?'
-        logging.debug('Getting mode')
-        ans = self._visainstrument.ask(string)
-        return ans.strip('"')
+#DISP:ENAB
+#turns the display on or off (might help with some noise pickup)
+    def do_set_display(self, val):
+        if val:
+            self._visainstrument.write('DISP:ENAB 1')
+        else:
+            self._visainstrument.write('DISP:ENAB 0')
 
     def do_get_display(self):
-        '''
-        Read the staturs of diplay
+        return int(self._visainstrument.ask('DISP:ENAB?')) == 1
 
-        Input:
-            None
-
-        Output:
-            True = On
-            False= Off
-        '''
-        logging.debug('Reading display from instrument')
-        reply = self._visainstrument.ask('DISP:ENAB?')
-        return bool(int(reply))
-
-    def do_set_display(self, val):
-        '''
-        Switch the diplay on or off.
-
-        Input:
-            val (boolean) : True for display on and False for display off
-
-        Output
-
-        '''
-        logging.debug('Set display to %s' % val)
-        val = bool_to_str(val)
-        return self._set_func_par_value('DISP','ENAB',val)
+#:AZER:STAT
+#sets or queries autozero. If ON, better accuracy is achieved 
+#at the expense of speed.
+#TODO: ensure that instrument is in IDLE state before setting autozero
+    def do_set_autozero(self, val):
+        if val:
+            self._visainstrument.write(':SYST:AZER:STAT 1')
+        else:
+            self._visainstrument.write(':SYST:AZER:STAT 0')
 
     def do_get_autozero(self):
-        '''
-        Read the staturs of the autozero function
-
-        Input:
-            None
-
-        Output:
-            reply (boolean) : Autozero status.
-        '''
-        logging.debug('Reading autozero status from instrument')
-        reply = self._visainstrument.ask(':ZERO:AUTO?')
-        return bool(int(reply))
-
-    def do_set_autozero(self, val):
-        '''
-        Switch the diplay on or off.
-
-        Input:
-            val (boolean) : True for display on and False for display off
-
-        Output
-
-        '''
-        logging.debug('Set autozero to %s' % val)
-        val = bool_to_str(val)
-        return self._visainstrument.write('SENS:ZERO:AUTO %s' % val)
-
-    def do_set_averaging(self, val, mode=None):
-        '''
-        Switch averaging on or off.
-        If mode=None the current mode is assumed
-
-        Input:
-            val (boolean)
-            mode (string) : mode to set property for. Choose from self._modes.
-
-        Output:
-            None
-        '''
-        logging.debug('Set averaging to %s ' % val)
-        val = bool_to_str(val)
-        self._set_func_par_value(mode, 'AVER:STAT', val)
-
-    def do_get_averaging(self, mode=None):
-        '''
-        Get status of averaging.
-        If mode=None the current mode is assumed
-
-        Input:
-            mode (string) : mode to set property for. Choose from self._modes.
-
-        Output:
-            result (boolean)
-        '''
-        logging.debug('Get averaging')
-        reply = self._get_func_par(mode, 'AVER:STAT')
-        return bool(int(reply))
-
-    def do_set_averaging_count(self, val, mode=None):
-        '''
-        Set averaging count.
-        If mode=None the current mode is assumed
-
-        Input:
-            val (int)   : Averaging count.
-            mode (string) : mode to set property for. Choose from self._modes.
-
-        Output:
-            None
-        '''
-        logging.debug('Set averaging_count to %s ' % val)
-        self._set_func_par_value(mode, 'AVER:COUN', val)
-
-    def do_get_averaging_count(self, mode=None):
-        '''
-        Get averaging count.
-        If mode=None the current mode is assumed
-
-        Input:
-            mode (string) : mode to get property for. Choose from self._modes.
-
-        Output:
-            result (int) : Averaging count
-        '''
-        logging.debug('Get averaging count')
-        reply = self._get_func_par(mode, 'AVER:COUN')
-        return int(reply)
-
-    def do_set_autorange(self, val, mode=None):
-        '''
-        Switch autorange on or off.
-        If mode=None the current mode is assumed
-
-        Input:
-            val (boolean)
-            mode (string) : mode to set property for. Choose from self._modes.
-
-        Output:
-            None
-        '''
-        logging.debug('Set autorange to %s ' % val)
-        val = bool_to_str(val)
-        self._set_func_par_value(mode, 'RANG:AUTO', val)
-
-    def do_get_autorange(self, mode=None):
-        '''
-        Get status of averaging.
-        If mode=None the current mode is assumed
-
-        Input:
-            mode (string) : mode to set property for. Choose from self._modes.
-
-        Output:
-            result (boolean)
-        '''
-        logging.debug('Get autorange')
-        reply = self._get_func_par(mode, 'RANG:AUTO')
-        return bool(int(reply))
-
-    def do_set_averaging_type(self, type, mode=None):
-        '''
-        Set the averaging_type to the specified value
-        If mode=None the current mode is assumed
-
-        Input:
-            type (string) : averaging type to be set. Choose from self._averaging_types
-                            or choose 'moving' or 'repeat'.
-            mode (string) : mode to set property for. Choose from self._modes
-
-        Output:
-            None
-        '''
-
-        logging.debug('Set averaging type to %s', type)
-        if type is 'moving':
-            type='MOV'
-        elif type is 'repeat':
-            type='REP'
-
-        if type in self._averaging_types:
-            self._set_func_par_value(mode, 'AVER:TCON', type)
+        return int(self._visainstrument.ask(':SYST:AZER:STAT?')) == 1
+    
+#:<function>:AVER:STAT
+#sets or queries averaging.
+#Note: this is only available for current, voltage, resistance and temperature
+    def do_set_averaging(self, val):
+        if self.get_mode() == 10 or self.get_mode() == 9 or self.get_mode() == 7 or self.get_mode() == 6:
+            logging.error('Cannot set averaging for the current function')
+            return False
+        else:       
+            if val:
+                self._visainstrument.write(':'+self._int_to_function(self.get_mode())+':AVER:STAT 1')
+            else:
+                self._visainstrument.write(':'+self._int_to_function(self.get_mode())+':AVER:STAT 0')
+               
+    def do_get_averaging(self):
+        if self.get_mode() == 10 or self.get_mode() == 9 or self.get_mode() == 7 or self.get_mode() == 6:
+            logging.error('Cannot get averaging for the current function')
+            return False        
         else:
-            logging.error('invalid type %s' % type)
+            return int(self._visainstrument.ask(':'+self._int_to_function(self.get_mode())+':AVER:STAT?')) == 1
 
-    def do_get_averaging_type(self, mode=None):
-        '''
-        Read the mode from the device
-        If mode=None the current mode is assumed
+#:<function>:AVER:COUN
+#sets or queries averaging count.
+#Note: this is only available for current, voltage, resistance and temperature
+    def do_set_averaging_count(self, val):
+        if self.get_mode() == 10 or self.get_mode() == 9 or self.get_mode() == 7 or self.get_mode() == 6:
+            logging.error('Cannot set averaging count for the current function')
+            return False
+        else:
+            self._visainstrument.write(':'+self._int_to_function(self.get_mode())+':AVER:COUN '+str(val))
+            
+    def do_get_averaging_count(self):
+        if self.get_mode() == 10 or self.get_mode() == 9 or self.get_mode() == 7 or self.get_mode() == 6:
+            logging.error('Cannot get averaging count for the current function')
+            return False
+        else:
+            return int(self._visainstrument.ask(':'+self._int_to_function(self.get_mode())+':AVER:COUN?'))
 
-        Input:
-            mode (string) : mode to get property for. Choose from self._modes.
+#:<function>:AVER:TCON
+#sets or queries averaging type (moving or repeating).
+#Note: this is only available for current, voltage, resistance and temperature
+    def do_set_averaging_type(self, val):
+        if self.get_mode() == 10  or self.get_mode() == 9 or self.get_mode() == 7 or self.get_mode() == 6:
+            logging.error('Cannot set averaging type for the current function')
+            return False
+        else:
+            if val:
+                self._visainstrument.write(':'+self._int_to_function(self.get_mode())+':AVER:TCON MOV')
+            else:
+                self._visainstrument.write(':'+self._int_to_function(self.get_mode())+':AVER:TCON REP')
 
-        Output:
-            type (string) : Current avering type for specified mode.
-        '''
-        logging.debug('Getting mode')
-        ans = self._get_func_par(mode,'AVER:TCON')
-        if ans.startswith('REP'):
-            ans='repeat'
-        elif ans.startswith('MOV'):
-            ans='moving'
-        return ans
+    def do_get_averaging_type(self):
+        if self.get_mode() == 10 or self.get_mode() == 9 or self.get_mode() == 7 or self.get_mode() == 6:
+            logging.error('Cannot get averaging type for the current function')
+            return False
+        else:
+            return self._visainstrument.ask(':'+self._int_to_function(self.get_mode())+':AVER:TCON?').strip() == 'MOV'
+
+##:<function>:RANG:AUTO
+#sets or queries averaging type (moving or repeating).
+#Note: this is only available for current, voltage and resistance
+    def do_set_autorange(self, val):
+        if self.get_mode() > 5:
+            logging.error('Cannot set autorange for the current function')
+            return False
+        else:
+            if val:
+                self._visainstrument.write(':'+self._int_to_function(self.get_mode())+':RANG:AUTO 1')
+            else:
+                self._visainstrument.write(':'+self._int_to_function(self.get_mode())+':RANG:AUTO 0')            
+
+    def do_get_autorange(self):
+        if self.get_mode() > 5:
+            logging.error('Cannot get autorange for the current function')
+            return False
+        else:
+            return int(self._visainstrument.ask(':'+self._int_to_function(self.get_mode())+':RANG:AUTO?')) == 1
+
+#:STAT:MEAS?
+#reads measurement event register
+#note that reading the register clears it
+    def do_get_status_measurement(self):
+        return int(self._visainstrument.ask(':STAT:MEAS?'))
+
+#:STAT:OPER?
+#reads measurement event register
+#note that reading the register clears it
+    def do_get_status_operation(self):
+        return int(self._visainstrument.ask(':STAT:OPER?'))
+    
 # --------------------------------------
 #           Internal Routines
 # --------------------------------------
 
-    def _change_units(self, unit):
-        self.set_parameter_options('readval', units=unit)
-        self.set_parameter_options('readlastval', units=unit)
-        self.set_parameter_options('readnextval', units=unit)
-
-    def _determine_mode(self, mode):
-        '''
-        Return the mode string to use.
-        If mode is None it will return the currently selected mode.
-        '''
-        logging.debug('Determine mode with mode=%s' % mode)
-        if mode is None:
-            mode = self.get_mode(query=False)
-        if mode not in self._modes and mode not in ('INIT', 'TRIG', 'SYST', 'DISP'):
-            logging.warning('Invalid mode %s, assuming current' % mode)
-            mode = self.get_mode(query=False)
-        return mode
-
-    def _set_func_par_value(self, mode, par, val):
-        '''
-        For internal use only!!
-        Changes the value of the parameter for the function specified
-
-        Input:
-            mode (string) : The mode to use
-            par (string)  : Parameter
-            val (depends) : Value
-
-        Output:
-            None
-        '''
-        mode = self._determine_mode(mode)
-        string = ':%s:%s %s' % (mode, par, val)
-        logging.debug('Set instrument to %s' % string)
-        self._visainstrument.write(string)
-
-    def _get_func_par(self, mode, par):
-        '''
-        For internal use only!!
-        Reads the value of the parameter for the function specified
-        from the instrument
-
-        Input:
-            func (string) : The mode to use
-            par (string)  : Parameter
-
-        Output:
-            val (string) :
-        '''
-        mode = self._determine_mode(mode)
-        string = ':%s:%s?' % (mode, par)
-        ans = self._visainstrument.ask(string)
-        logging.debug('ask instrument for %s (result %s)' % \
-            (string, ans))
-        return ans
+    def _int_to_function(self, val):
+        if val == 0:
+            return 'CURR:AC'
+        elif val == 1:
+            return 'CURR:DC'
+        elif val == 2:
+            return 'VOLT:AC'
+        elif val == 3:
+            return 'VOLT:DC'
+        elif val == 4:
+            return 'RES'
+        elif val == 5:
+            return 'FRES'
+        elif val == 6:
+            return 'PER'
+        elif val == 7:
+            return 'FREQ'
+        elif val == 8:
+            return 'TEMP'
+        elif val == 9:
+            return 'DIOD'
+        elif val == 10:
+            return 'CONT'
+        else:
+            return None
 
     def _measurement_start_cb(self, sender):
         '''
