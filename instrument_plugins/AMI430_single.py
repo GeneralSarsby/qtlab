@@ -61,6 +61,11 @@ class AMI430_single(Instrument):
     #Check your magnet configuration!
     PSWPRESENT=True
     
+    #soft parameters related to field offset
+    offseten=False
+    fieldoffset=0.0
+    fieldtotal=0.0
+    
     ###Init
     ###Parameters:
     #address: IP address of magnet controller. Has to be set on front panel. 
@@ -115,6 +120,10 @@ class AMI430_single(Instrument):
         self.add_parameter('error', type=types.StringType,
                            flags=Instrument.FLAG_GET)
         
+        self.add_parameter('offsetEnabled', type=types.BooleanType,
+                flags=Instrument.FLAG_GETSET,
+                format_map={False:'off',True:'on'})        
+        
         self.add_function('reset')
         self.add_function('rampTo')
         self.add_function('resetQuench')
@@ -142,6 +151,9 @@ class AMI430_single(Instrument):
         self.get_rampRate()
         self.get_quench()
         self.get_setPoint()
+        if self.get_offsetEnabled:
+            self.get_offsetField()
+            self.get_totalField()
         
     #Low level functions to handle communication
     #should not be used directly
@@ -275,11 +287,20 @@ class AMI430_single(Instrument):
     
     def do_get_field(self):                              
         self.get_rampState()                             ### updates rampstate as well
-        return float(self._ask('FIELD:MAG?\n'))
+        val = float(self._ask('FIELD:MAG?\n'))
+        if self.get_offsetEnabled():
+            self.get_totalField()
+            return val - self.get_offsetField()
+        else:
+            return val
   
     def do_set_field(self,value):                              ### Set field
         if self._set_magnet_for_ramping():
             self.setPause()
+            if self.get_offsetEnabled():
+                self.set_parameter_options('offsetField')['maxval']=self.FIELDRATING-value
+                self.set_parameter_options('offsetField')['minval']=-self.FIELDRATING-value
+                value += self.get_offsetField()
             self._send('CONF:FIELD:TARG '+str(value)+'\n')
             if self.PSWPRESENT:                                 #set persistent switch ON before ramping
                 if not self.get_pSwitch():
@@ -292,6 +313,8 @@ class AMI430_single(Instrument):
             if self.get_rampState() == 2:                       #if holding, set paused, otherwise error
                 self.setPause()
                 self.get_rampState()
+                if self.get_offsetEnabled():
+                    self.get_totalField()
                 return True
             else:
                 temp = self.get_rampState()
@@ -308,6 +331,10 @@ class AMI430_single(Instrument):
     def rampTo(self,value):
         if self._set_magnet_for_ramping() and value <= self.get_parameter_options('field')['maxval'] and value >= self.get_parameter_options('field')['minval']:
             self.setPause()
+            if self.get_offsetEnabled():
+                self.set_parameter_options('offsetField')['maxval']=self.FIELDRATING-value
+                self.set_parameter_options('offsetField')['minval']=-self.FIELDRATING-value
+                value += self.get_offsetField()
             self._send('CONF:FIELD:TARG '+str(value)+'\n')
             if self.PSWPRESENT:
                 if not self.get_pSwitch():
@@ -324,7 +351,89 @@ class AMI430_single(Instrument):
     
     def do_get_setPoint(self):
         self.get_rampState()                        #also updates rampState
-        return float(self._ask('FIELD:TARG?\n'))
+        val = float(self._ask('FIELD:TARG?\n'))
+        if self.get_offsetEnabled():
+            return val - self.get_offsetField()
+        else:
+            return val 
+        
+    ### query/toggle offset magnetic field
+    
+    def do_get_offsetEnabled(self):
+        return self.offseten
+    
+    def do_set_offsetEnabled(self, value):
+        if value:
+            if self.get_offsetEnabled():
+                return True
+            else:
+                if not self._set_magnet_for_ramping():
+                    logging.error(__name__+': cannot enable offset if magnet is ramping, in persistent mode or quenched.')
+                    return False
+                currentfield=self.get_field()
+                self.fieldoffset=0.0
+                self.offseten=True
+                self.add_parameter('offsetField', type=types.FloatType,
+                                   flags=Instrument.FLAG_GETSET,
+                                   units='T',
+                                   minval=-self.FIELDRATING-currentfield, maxval=self.FIELDRATING-currentfield,
+                                   format='%.6f')
+                self.add_parameter('totalField', type=types.FloatType,
+                                   flags=Instrument.FLAG_GET,
+                                   units='T',
+                                   format='%.6f')
+                return True
+        else:
+            if self.get_offsetEnabled():
+                if not self._set_magnet_for_ramping():
+                    logging.error(__name__+': cannot disable offset if magnet is ramping, in persistent mode or quenched.')
+                    return False
+                self.offseten=False
+                self.fieldoffset=0.0
+                self.remove_parameter('offsetField')
+                self.remove_parameter('totalField')
+                self.set_field(self.fieldtotal)
+                return True
+            else:
+                return True
+    
+    def do_get_offsetField(self):
+        return self.fieldoffset
+    
+    def do_set_offsetField(self, value):
+        self.fieldoffset=value
+        if self._set_magnet_for_ramping():
+            self.setPause()
+            self.set_parameter_options('field')['maxval']=self.FIELDRATING-value
+            self.set_parameter_options('field')['minval']=-self.FIELDRATING-value
+            currentfield=self.get_totalField()
+            newfield=currentfield+value-self.fieldoffset
+            self._send('CONF:FIELD:TARG '+str(newfield)+'\n')
+            if self.PSWPRESENT:                                 #set persistent switch ON before ramping
+                if not self.get_pSwitch():
+                    self.set_pSwitch(True)
+            self.setRamp() 
+            time.sleep(0.5)
+            while (self.get_rampState() == 1):                 #Polling for finished ramping
+                time.sleep(0.3) 
+            time.sleep(2.0)                                      #Wait for another 2sec for the field to settle
+            if self.get_rampState() == 2:                       #if holding, set paused, otherwise error
+                self.setPause()
+                self.get_rampState()
+                self.get_totalField()
+                self.fieldoffset=value
+                return True
+            else:
+                temp = self.get_rampState()
+                logging.error(__name__ +': set_offsetField ' + str(value) + ' ended with ' + str(temp))
+            return False
+        else:
+            logging.error(__name__+': set offsetField '+ str(value) + 'failed')
+            return False
+    
+    def do_get_totalField(self):
+        self.get_rampState()                             ### updates rampstate as well
+        return self._ask('FIELD:MAG?\n')
 
     #### Quench query command
     #### Note that quench reset command differs for safety reasons. See below!
