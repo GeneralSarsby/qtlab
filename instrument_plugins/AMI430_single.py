@@ -64,7 +64,6 @@ class AMI430_single(Instrument):
     #soft parameters related to field offset
     offseten=False
     fieldoffset=0.0
-    fieldtotal=0.0
     
     ###Init
     ###Parameters:
@@ -151,7 +150,7 @@ class AMI430_single(Instrument):
         self.get_rampRate()
         self.get_quench()
         self.get_setPoint()
-        if self.get_offsetEnabled:
+        if self.get_offsetEnabled():
             self.get_offsetField()
             self.get_totalField()
         
@@ -184,11 +183,10 @@ class AMI430_single(Instrument):
         if self.get_quench():
             logging.error(__name__ +': Magnet quench')
             return False
-        elif self.PSWPRESENT:
-            if self.get_persistent():
-                logging.error(__name__ +': Magnet set to persistent mode')
-                return False
         else:
+            if self.PSWPRESENT and self.get_persistent():
+                logging.error(__name__ +': Magnet set to persistent mode')
+                return False                
             temp=self.get_rampState()
             if temp == 4 or temp == 5:
                 logging.error(__name__ +': Magnet set to manual ramp')
@@ -287,19 +285,16 @@ class AMI430_single(Instrument):
     
     def do_get_field(self):                              
         self.get_rampState()                             ### updates rampstate as well
-        val = float(self._ask('FIELD:MAG?\n'))
         if self.get_offsetEnabled():
-            self.get_totalField()
-            return val - self.get_offsetField()
+            return self.get_totalField() - self.get_offsetField()
         else:
-            return val
+            return float(self._ask('FIELD:MAG?\n'))
   
     def do_set_field(self,value):                              ### Set field
         if self._set_magnet_for_ramping():
             self.setPause()
             if self.get_offsetEnabled():
-                self.set_parameter_options('offsetField')['maxval']=self.FIELDRATING-value
-                self.set_parameter_options('offsetField')['minval']=-self.FIELDRATING-value
+                self.set_parameter_bounds('offsetField', -self.FIELDRATING-value, self.FIELDRATING-value)
                 value += self.get_offsetField()
             self._send('CONF:FIELD:TARG '+str(value)+'\n')
             if self.PSWPRESENT:                                 #set persistent switch ON before ramping
@@ -332,8 +327,7 @@ class AMI430_single(Instrument):
         if self._set_magnet_for_ramping() and value <= self.get_parameter_options('field')['maxval'] and value >= self.get_parameter_options('field')['minval']:
             self.setPause()
             if self.get_offsetEnabled():
-                self.set_parameter_options('offsetField')['maxval']=self.FIELDRATING-value
-                self.set_parameter_options('offsetField')['minval']=-self.FIELDRATING-value
+                self.set_parameter_bounds('offsetField', -self.FIELDRATING-value, self.FIELDRATING-value)
                 value += self.get_offsetField()
             self._send('CONF:FIELD:TARG '+str(value)+'\n')
             if self.PSWPRESENT:
@@ -382,6 +376,8 @@ class AMI430_single(Instrument):
                                    flags=Instrument.FLAG_GET,
                                    units='T',
                                    format='%.6f')
+                self.get_totalField()
+                self.get_offsetField()
                 return True
         else:
             if self.get_offsetEnabled():
@@ -390,9 +386,10 @@ class AMI430_single(Instrument):
                     return False
                 self.offseten=False
                 self.fieldoffset=0.0
+                self.set_parameter_bounds('field',-self.FIELDRATING, self.FIELDRATING)
+                self.set_field(self.get_totalField())
                 self.remove_parameter('offsetField')
                 self.remove_parameter('totalField')
-                self.set_field(self.fieldtotal)
                 return True
             else:
                 return True
@@ -401,11 +398,9 @@ class AMI430_single(Instrument):
         return self.fieldoffset
     
     def do_set_offsetField(self, value):
-        self.fieldoffset=value
         if self._set_magnet_for_ramping():
             self.setPause()
-            self.set_parameter_options('field')['maxval']=self.FIELDRATING-value
-            self.set_parameter_options('field')['minval']=-self.FIELDRATING-value
+            self.set_parameter_bounds('field', -self.FIELDRATING-value, self.FIELDRATING-value)
             currentfield=self.get_totalField()
             newfield=currentfield+value-self.fieldoffset
             self._send('CONF:FIELD:TARG '+str(newfield)+'\n')
