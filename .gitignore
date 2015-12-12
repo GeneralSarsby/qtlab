@@ -4,3 +4,6 @@ qtlab.log
 qtlab.cfg
 data
 tmp
+.project
+.pydevproject
+.settings/*
