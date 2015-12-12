@@ -28,9 +28,10 @@ _cfg['qtlab'] = True
 
 import types
 from instrument import Instrument
-from lib.misc import exact_time, get_ipython
+from lib.misc import exact_time
 from lib import temp
 from time import sleep
+import IPython
 
 #set_debug(True)
 from lib.network import object_sharer as objsh
@@ -82,7 +83,8 @@ try:
     import qtflow
     # Note: This does not seem to work for 'KeyboardInterrupt',
     # likely it is already caught by ipython itself.
-    get_ipython().set_custom_exc((Exception, ), qtflow.exception_handler)
+    ip=IPython.get_ipython()
+    ip.set_custom_exc((Exception, ), qtflow.exception_handler)
 except Exception, e:
     print 'Error: %s' % str(e)
 

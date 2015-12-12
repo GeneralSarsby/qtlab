@@ -17,17 +17,13 @@
 
 import gobject
 from lib.network.object_sharer import SharedGObject
-from lib.misc import get_ipython
+import IPython
 
 def _clear_ipython():
-    # TODO: In ipython 0.11 IP no longer exists. Also, %clear magic (clearcmd.py) has been put in quarantine folder. It is not clear to me what has replaced the functionality. possiby ip.cleanup, ip.clear_instance or ip.clear_main_mod_cache.
-    try:
-        ip = get_ipython()
-        ip.IP.ipmagic('clear out')
-        import gc
-        gc.collect()
-    except:
-        pass
+    ip=IPython.get_ipython()
+    ip.cleanup()
+    import gc
+    gc.collect()
 
 class NamedList(SharedGObject):
 
