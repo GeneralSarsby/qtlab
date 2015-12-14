@@ -153,4 +153,8 @@ class example(Instrument):
         print 'Stepping channel %s by %f' % (channel, stepsize)
         cur = self.get('ch%s_output' % channel, query=False)
         self.set('ch%s_output' % channel, cur + stepsize)
+    
+    def change_limit(self, min, max):
+        self.set_parameter_bounds('output1', min, max)
+        return True
 

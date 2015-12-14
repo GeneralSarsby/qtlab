@@ -438,7 +438,8 @@ class AMI430_2D(Instrument):
         if self._offseten:
             return self._field
         else:
-            return math.hypot(self.get_fieldX(), self.get_fieldY()) 
+            self._field=math.hypot(self.get_fieldX(), self.get_fieldY())
+            return self._field 
     
     def do_set_field(self, value):
         a=math.radians(self._alpha)
@@ -626,7 +627,7 @@ class AMI430_2D(Instrument):
     # for now we only check field amplitude
     
     def _field_limit(self, Bx, By):
-        if math.hypot(self.get_fieldX(), self.get_fieldY()) < self.FIELDRATING_XY:
+        if math.hypot(Bx, By) < self.FIELDRATING_XY:
             return True
         else:
             return False
