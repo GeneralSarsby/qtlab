@@ -74,7 +74,12 @@ class AMI430_2D(Instrument):
     #soft parameters
     _mode=0x01
     _alpha=0.0
-    _alpha_ref=0.0
+    _field=0.0
+    
+    #soft parameters related to field offset
+    _offseten=False
+    _fieldoffset=0.0
+    _alphaoffset=0.0
     
     #global parameter for the presence of persistent switch. Default is True.
     #Check your magnet configuration!
@@ -208,13 +213,6 @@ class AMI430_2D(Instrument):
                 minval=-180.0, maxval=180.0,
                 format='%.3f')
             
-        if mode & self.MODE_XY:
-            self.add_parameter('alpha_ref', type=types.FloatType,
-                flags=Instrument.FLAG_GETSET,
-                units='degree',
-                minval=-180.0, maxval=180.0,
-                format='%.3f')
-            
         if mode & (self.MODE_RAW | self.MODE_X):
             self.add_parameter('setPointX', type=types.FloatType,
                 flags=Instrument.FLAG_GET,
@@ -280,6 +278,11 @@ class AMI430_2D(Instrument):
         if mode & (self.MODE_RAW | self.MODE_Y | self.MODE_XY):
             self.add_parameter('errorY', type=types.StringType,
                                flags=Instrument.FLAG_GET)
+            
+        if mode & self.MODE_XY:
+            self.add_parameter('offsetEnabled', type=types.BooleanType,
+                flags=Instrument.FLAG_GETSET,
+                format_map={False:'off',True:'on'}) 
     
     def get_all(self):
         for p in self.get_parameter_names():
@@ -432,13 +435,34 @@ class AMI430_2D(Instrument):
             return False    
     
     def do_get_field(self):
-        return math.hypot(self._channelX.get_field(), self._channelY.get_field()) 
+        if self._offseten:
+            return self._field
+        else:
+            return math.hypot(self.get_fieldX(), self.get_fieldY()) 
     
     def do_set_field(self, value):
-        a=math.radians(self.get_alpha()+self.get_alpha_ref())
-        return self._channelX.set_field(value*math.cos(a)) and self._channelY.set_field(value*math.sin(a))
+        a=math.radians(self._alpha)
+        if self._offseten:
+            ao=math.radians(self._alphaoffset)
+            Bxtot=self._fieldoffset*math.cos(ao)+value*math.cos(a)
+            Bytot=self._fieldoffset*math.sin(ao)+value*math.sin(a)
+            if self._field_limit(Bxtot, Bytot):
+                if self._sweepFields(Bxtot, Bytot):
+                    self.get_totalField()
+                    self.get_totalAlpha()
+                    self._field=value
+                    return True
+                else:
+                    logging.error(__name__ + ': Error while applying offset field')
+                    return False                    
+            else: 
+                logging.error(__name__ + ': Field limit exceeded in offset mode')
+                return False
+        else:
+            self._field=value
+            return self._sweepFields(value*math.cos(a), value*math.sin(a))
     
-    #Alpha is referenced to the X axis    
+    # Alpha is referenced to the X axis    
     # We always ramp within the safe region: always do the ramp down first,
     # and only ramp up the other axis afterwards
     # this results in some performance penalty compared to
@@ -448,29 +472,178 @@ class AMI430_2D(Instrument):
         return self._alpha
     
     def do_set_alpha(self, value):
-        B=self.get_field()
-        a=math.radians(value+self.get_alpha_ref())
-        oldX=self.get_fieldX()
-        newX=B*math.cos(a)
-        newY=B*math.sin(a)
-        self._alpha=value        
-        if math.fabs(newX) < math.fabs(oldX):
-            return self._channelX.set_field(newX) and self._channelY.set_field(newY)
+        if self._offseten:
+            a=math.radians(value)
+            ao=math.radians(self._alphaoffset)
+            Bxtot=self._fieldoffset*math.cos(ao)+self._field*math.cos(a)
+            Bytot=self._fieldoffset*math.sin(ao)+self._field*math.sin(a)
+            if self._field_limit(Bxtot, Bytot):
+                if self._sweepFields(Bxtot, Bytot):
+                    self._alpha=value
+                    self.get_totalField()
+                    self.get_totalAlpha()
+                    return True
+                else:
+                    logging.error(__name__ + ': Error while applying alpha in offset mode')
+                    return False
+            else: 
+                logging.error(__name__ + ': Field limit exceeded in offset mode')
+                return False             
         else:
-            return self._channelY.set_field(newY) and self._channelX.set_field(newX)
-
-    def do_get_alpha_ref(self):
-        return self._alpha_ref
+            B=self.get_field()
+            a=math.radians(value)
+            newX=B*math.cos(a)
+            newY=B*math.sin(a)
+            if self._sweepFields(newX, newY):
+                self._alpha=value
+                return True
+            else:
+                logging.error(__name__ + ': Error while applying alpha')
+                return False     
+    
+    # Offset field operations
+    # If offset is enabled, an offset field of magnitude offsetField and direction offsetAlpha
+    # is added to the vector field.
+    # Note: magnet limit has to be checked individually if either field, alpha, offsetField or offsetAlpha
+    # are changed
+    
+    def do_get_offsetEnabled(self):
+        return self._offseten
+    
+    def do_set_offsetEnabled(self, value):
+        if value:
+            if self.get_offsetEnabled():
+                return True
+            else:
+                self._fieldoffset=0.0
+                self._alphaoffset=0.0
+                self._offseten=True
+                self.add_parameter('offsetField', type=types.FloatType,
+                                   flags=Instrument.FLAG_GETSET,
+                                   units='T',
+                                   format='%.6f')
+                self.add_parameter('offsetAlpha', type=types.FloatType,
+                                   flags=Instrument.FLAG_GETSET,
+                                   units='degree',
+                                   minval=-180.0, maxval=180.0,
+                                   format='%.3f')
+                self.add_parameter('totalField', type=types.FloatType,
+                                   flags=Instrument.FLAG_GET,
+                                   units='T',
+                                   format='%.6f')
+                self.add_parameter('totalAlpha', type=types.FloatType,
+                                   flags=Instrument.FLAG_GET,
+                                   units='degree',
+                                   format='%.3f')
+                self.get_totalField()
+                self.get_totalAlpha()
+                self.get_offsetField()
+                self.get_offsetAlpha()
+                return True
+        else:
+            if self.get_offsetEnabled():
+                self._offseten=False
+                self._fieldoffset=0.0
+                self._alphaoffset=0.0
+                self.set_field(self.get_totalField())
+                self.set_alpha(self.get_totalAlpha())
+                self.remove_parameter('offsetField')
+                self.remove_parameter('offsetAlpha')
+                self.remove_parameter('totalField')
+                self.remove_parameter('totalAlpha')
+                return True
+            else:
+                return True
             
-    def do_set_alpha_ref(self, value):
-        B=self.get_field()
-        a=math.radians(value+self.get_alpha())
-        oldX=self.get_fieldX()
-        newX=B*math.cos(a)
-        newY=B*math.sin(a)
-        self._alpha_ref=value        
-        if math.fabs(newX) < math.fabs(oldX):
-            return self._channelX.set_field(newX) and self._channelY.set_field(newY)
+    
+    def do_get_offsetField(self):
+        return self._fieldoffset
+    
+    def do_set_offsetField(self, value):
+        a=math.radians(self._alpha)
+        ao=math.radians(self._alphaoffset)
+        Bxtot=value*math.cos(ao)+self._field*math.cos(a)
+        Bytot=value*math.sin(ao)+self._field*math.sin(a)
+        if self._field_limit(Bxtot, Bytot):
+            if self._sweepFields(Bxtot, Bytot):
+                self.get_totalField()
+                self.get_totalAlpha()
+                self._fieldoffset=value
+                return True
+            else:
+                logging.error(__name__ + ': Error while applying offset field')
+                return False                    
+        else: 
+            logging.error(__name__ + ': Field limit exceeded in offset mode')
+            return False
+    
+    def do_get_offsetAlpha(self):
+        return self._alphaoffset
+    
+    def do_set_offsetAlpha(self, value):
+        ao=math.radians(value)
+        a=math.radians(self._alpha)
+        Bxtot=self._fieldoffset*math.cos(ao)+self._field*math.cos(a)
+        Bytot=self._fieldoffset*math.sin(ao)+self._field*math.sin(a)
+        if self._field_limit(Bxtot, Bytot):
+            if self._sweepFields(Bxtot, Bytot):
+                self.get_totalField()
+                self.get_totalAlpha()
+                self._alphaoffset=value
+                return True
+            else:
+                logging.error(__name__ + ': Error while applying offset alpha')
+                return False
+        else: 
+            logging.error(__name__ + ': Field limit exceeded in offset mode')
+            return False    
+    
+    # Note: totalField is readonly in offset mode
+    # and always returns the value read from the instrument
+    
+    def do_get_totalField(self):
+        return math.hypot(self.get_fieldX(), self.get_fieldY())
+    
+    # This is a tricky one
+    # if it gives problems, I will just put it in try catch
+    
+    def do_get_totalAlpha(self):
+        Bxtot=self.get_fieldX()
+        Bytot=self.get_fieldY()
+        if Bxtot != 0.0:
+            if Bytot > 0.0:
+                return math.degrees(math.atan(Bytot/Bxtot))
+            else:
+                return 360.0-math.degrees(math.atan(Bytot/Bxtot))
         else:
-            return self._channelY.set_field(newY) and self._channelX.set_field(newX)
+            if Bytot >= 0.0:
+                return 90.0
+            else:
+                return 270.0
+    
+    # checking if field is safe to apply
+    # this is required only for offset XY fields
+    # for now we only check field amplitude
+    
+    def _field_limit(self, Bx, By):
+        if math.hypot(self.get_fieldX(), self.get_fieldY()) < self.FIELDRATING_XY:
+            return True
+        else:
+            return False
+    
+    # these functions ensure that we always stay within the limit of the vectorfield
+        
+    def _sweep_X_then_Y(self, Bx, By):
+        return self._channelX.set_field(Bx) and self._channelY.set_field(By)
+    
+    def _sweep_Y_then_X(self, Bx, By):
+        return self._channelY.set_field(By) and self._channelX.set_field(Bx)
+    
+    def _sweepFields(self, Bx, By):
+        oldXfield=self.get_fieldX()
+        oldYfield=self.get_fieldY()    #this is just to update By value
+        if math.fabs(Bx) < math.fabs(oldXfield):
+            return self._sweep_X_then_Y(Bx, By)
+        else:
+            return self._sweep_Y_then_X(Bx, By)
            
