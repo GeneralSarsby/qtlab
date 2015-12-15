@@ -17,9 +17,6 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
-#TODO:
-#implement reference coord
-#implement offset field
 
 from instrument import Instrument
 import instruments
@@ -869,7 +866,7 @@ class AMI430_3D(Instrument):
         Bztot=value*math.cos(fo)+self._field*math.cos(f)
         if self._field_limit(Bxtot, Bytot, Bztot):
             if self._sweepFieldsXYZ(Bxtot, Bytot, Bztot):
-                self._offsetfield=value
+                self._fieldoffset=value
                 self.get_totalField()
                 self.get_totalAlpha()
                 self.get_totalPhi()
@@ -879,7 +876,10 @@ class AMI430_3D(Instrument):
                 return False
         else: 
             logging.error(__name__ + ': Field limit exceeded in offset mode')
-            return False    
+            return False
+    
+    def do_get_offsetAlpha(self):
+        return self._alphaoffset
     
     def do_set_offsetAlpha(self, value):
         a=math.radians(self._alpha)
@@ -902,6 +902,9 @@ class AMI430_3D(Instrument):
         else: 
             logging.error(__name__ + ': Field limit exceeded in offset mode')
             return False     
+    
+    def do_get_offsetPhi(self):
+        return self._phioffset
 
     def do_set_offsetPhi(self, value):
         a=math.radians(self._alpha)
@@ -979,10 +982,10 @@ class AMI430_3D(Instrument):
         return self._channelY.set_field(By) and self._channelX.set_field(Bx)
 
     def _sweep_XY_then_Z(self, Bx, By, Bz):
-        return self._channelX.set_field(Bx) and self._channelY.set_field(By) and self._channelY.set_field(Bz)
+        return self._channelX.set_field(Bx) and self._channelY.set_field(By) and self._channelZ.set_field(Bz)
     
     def _sweep_Z_then_XY(self, Bx, By, Bz):
-        return self._channelX.set_field(Bz) and self._channelY.set_field(Bx) and self._channelY.set_field(By)    
+        return self._channelZ.set_field(Bz) and self._channelX.set_field(Bx) and self._channelY.set_field(By)    
     
     def _sweepFieldsXY(self, Bx, By):
         oldXfield=self.get_fieldX()
