@@ -95,7 +95,7 @@ class Keithley_2700(Instrument):
             units='s', minval=0, maxval=999999.999, type=types.FloatType)
         self.add_parameter('trigger_source',
             flags=Instrument.FLAG_GETSET,
-            units='')
+            units='',  type=types.StringType)
         self.add_parameter('trigger_timer',
             flags=Instrument.FLAG_GETSET,
             units='s', minval=0.001, maxval=99999.999, type=types.FloatType)
