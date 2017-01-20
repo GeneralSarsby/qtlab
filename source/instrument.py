@@ -469,7 +469,7 @@ class Instrument(SharedGObject):
         Change parameter options.
 
         Input:  name of parameter (string)
-        Ouput:  None
+        Output:  None
         '''
         if name not in self._parameters:
             print 'Parameter %s not defined' % name
@@ -485,7 +485,7 @@ class Instrument(SharedGObject):
         Return tags for parameter 'name'.
 
         Input:  name of parameter (string)
-        Ouput:  array of tags
+        Output:  array of tags
         '''
 
         if name not in self._parameters:
@@ -499,7 +499,7 @@ class Instrument(SharedGObject):
 
         Input:  (1) name of parameter (string)
                 (2) tag (string)
-        Ouput:  None
+        Output:  None
         '''
 
         if name not in self._parameters:
@@ -563,7 +563,7 @@ class Instrument(SharedGObject):
         Return the parameter dictionary.
 
         Input: None
-        Ouput: Dictionary, keys are parameter names, values are the options.
+        Output: Dictionary, keys are parameter names, values are the options.
         '''
         return self._parameters
 
@@ -572,7 +572,7 @@ class Instrument(SharedGObject):
         Return the parameter dictionary, with non-shareable items stripped.
 
         Input: None
-        Ouput: Dictionary, keys are parameter names, values are the options.
+        Output: Dictionary, keys are parameter names, values are the options.
         '''
 
         params = {}
@@ -1108,7 +1108,7 @@ class Instrument(SharedGObject):
         Return the exposed functions dictionary.
 
         Input: None
-        Ouput: Dictionary, keys are function  names, values are the options.
+        Output: Dictionary, keys are function  names, values are the options.
         '''
         return self._functions
 
