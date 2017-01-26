@@ -59,11 +59,10 @@ class AMI_135(Instrument):
         logging.debug(__name__ + ' : Opening serial connection')
         
         self._address = address
-        self._visainstrument = visa.SerialInstrument(self._address, timeout = 9)
+        self._visainstrument = visa.instrument(self._address, timeout = 9)
         self._visainstrument.baud_rate = 9600
         self._visainstrument.data_bits = 8
         self._visainstrument.stop_bits = 1
-        self._visainstrument.parity = visa.no_parity
         self._visainstrument.term_chars = '\r\n'
         self._visainstrument.delay = 3
     
