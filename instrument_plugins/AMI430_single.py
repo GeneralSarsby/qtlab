@@ -179,12 +179,12 @@ class AMI430_single(Instrument):
     ### This function tests the magnet status before we start to ramp
     ### used by set_field, set_offsetField and rampTo, should not be used directly
     
-    def _set_magnet_for_ramping(self):
+    def _set_magnet_for_ramping(self, pers=False):
         if self.get_quench():
             logging.error(__name__ +': Magnet quench')
             return False
         else:
-            if self.PSWPRESENT and self.get_persistent():
+            if self.PSWPRESENT and self.get_persistent() and not pers:      #only if driver hadn't set persistent mode itself
                 logging.error(__name__ +': Magnet set to persistent mode')
                 return False                
             temp=self.get_rampState()
@@ -290,15 +290,15 @@ class AMI430_single(Instrument):
         else:
             return float(self._ask('FIELD:MAG?\n'))
   
-    def do_set_field(self,value):                              ### Set field
-        if self._set_magnet_for_ramping():
+    def do_set_field(self,value, pers=False):                              ### Set field
+        if self._set_magnet_for_ramping(pers):
             self.setPause()
             if self.get_offsetEnabled():
                 self.set_parameter_bounds('offsetField', -self.FIELDRATING-value, self.FIELDRATING-value)
                 value += self.get_offsetField()
             self._send('CONF:FIELD:TARG '+str(value)+'\n')
-            if self.PSWPRESENT:                                 #set persistent switch ON before ramping
-                if not self.get_pSwitch():
+            if self.PSWPRESENT and not pers:                                 #set persistent switch ON before ramping
+                if not self.get_pSwitch():                                  # but only if not ramping in persistent mode
                     self.set_pSwitch(True)
             self.setRamp() 
             time.sleep(0.5)
@@ -316,7 +316,7 @@ class AMI430_single(Instrument):
                 logging.error(__name__ +': set_field ' + str(value) + ' ended with ' + str(temp))
             return False
         else:
-            logging.error(__name__+': set field '+ str(value) + 'failed')
+            logging.error(__name__+': set field '+ str(value) + ' failed')
             return False
 
     ### same as set_field, but non-blocking
@@ -467,10 +467,11 @@ class AMI430_single(Instrument):
                     while(self.get_rampState() == 6):    #waiting for zeroing to finish
                         time.sleep(0.3)
                     time.sleep(2.0)
-                    if self.get_rampState == 8:   #check for successful setting
+                    temp = self.get_rampState()
+                    if temp == 8:   #check for successful setting, zero current mode
                         return True
                     else:
-                        logging.error(__name__ + ': Setting persistent mode failed, magnet status is ' + str(self.get_rampState()))
+                        logging.error(__name__ + ': setting persistent mode failed, magnet status is ' + str(temp))
                         return False
         else:
             if not self.get_persistent():       #already in driven mode, nothing to do
@@ -481,7 +482,7 @@ class AMI430_single(Instrument):
                     logging.error(__name__ + ': setting driven mode failed, because of magnet status ' + str(temp))
                     return False
                 else:
-                    if self.set_field(self.get_field()):           #not a typo! this ramps to the value where the magnet was set to persistent mode
+                    if self.set_field(self.get_field(), pers=True):           #not a typo! this ramps to the value where the magnet was set to persistent mode
                         self.set_pSwitch(True)
                         return True
                     else:
