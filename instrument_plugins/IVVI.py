@@ -72,6 +72,7 @@ class IVVI(Instrument):
         self.add_function('get_all')
         self.add_function('set_dacs_zero')
         self.add_function('get_numdacs')
+        self.add_function('linspace')
 
         # Add parameters
         self.add_parameter('pol_dacrack',
@@ -340,7 +341,28 @@ class IVVI(Instrument):
             return 'POS'
         else:
             return 'Invalid polarity in memory'
-
+    
+    
+    def linspace(self,start,end,points):
+        '''
+        Creates array of mvoltages, in integer steps of the dac resolution.
+        Similar to np.linspace
+        '''
+        points = max(round(abs(points)),2)
+        use_reversed = end < start
+        if use_reversed:
+            start,end = end,start
+        dac_quata = 4.0/65535.0
+        byte_start =  int(round(start/1000.0/dac_quata))
+        byte_end = int(round(end/1000.0/dac_quata))
+        delta_bytes =  abs(byte_end - byte_start)+1
+        spacing =  max(round(delta_bytes / (points-1)),1)
+        l =  [ el*dac_quata*1000 for el in range(byte_start,byte_end+spacing,spacing)]
+        if use_reversed:
+             l = list(reversed(l))
+        return l
+    
+    
     def byte_limited_arange(self, start, stop, step=1, pol=None, dacnr=None):
         '''
         Creates array of mvoltages, in integer steps of the dac resolution. Either
